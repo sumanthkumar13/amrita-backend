@@ -31,3 +31,20 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Environment & OS Files ###
+.env             # 🔒 your SendGrid API key, DB credentials, etc.
+*.env            # covers variants like .env.local, .env.prod
+*.properties~    # temp files sometimes created by editors
+*.bak            # backup files
+*.log            # logs
+.DS_Store        # macOS file
+Thumbs.db        # Windows file
+
+### Java / Spring Boot ###
+*.class
+*.jar
+*.war
+*.ear
+hs_err_pid*
+replay_pid*
