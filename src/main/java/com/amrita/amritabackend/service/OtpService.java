@@ -1,5 +1,6 @@
 package com.amrita.amritabackend.service;
 
+import java.io.IOException;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Set;
@@ -10,11 +11,16 @@ import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.mail.SimpleMailMessage;
-import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
+
+import com.sendgrid.Method;
+import com.sendgrid.Request;
+import com.sendgrid.Response;
+import com.sendgrid.SendGrid;
+import com.sendgrid.helpers.mail.Mail;
+import com.sendgrid.helpers.mail.objects.Content; // ✅ ADD THIS IMPORT
+import com.sendgrid.helpers.mail.objects.Email;
 
 @Service
 public class OtpService {
@@ -43,11 +49,8 @@ public class OtpService {
     private final Map<String, OtpEntry> otpCache = new ConcurrentHashMap<>();
     private final Set<String> verifiedEmails = ConcurrentHashMap.newKeySet();
 
-    @Autowired
-    private JavaMailSender mailSender;
-
-    @Value("${spring.mail.username}") // ✅ ensures from = configured mail user
-    private String fromEmail;
+    @Value("${SENDGRID_API_KEY}")
+    private String sendgridApiKey;
 
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
 
@@ -61,16 +64,10 @@ public class OtpService {
         otpCache.put(email, new OtpEntry(otp, expiresAt));
 
         try {
-            SimpleMailMessage message = new SimpleMailMessage();
-            message.setFrom(fromEmail);
-            message.setTo(email);
-            message.setSubject("Your Amrita Events App OTP");
-            message.setText(String.format("Your OTP is: %s\nIt will expire in %d minutes.", otp, OTP_TTL_SECONDS / 60));
-            mailSender.send(message);
-            logger.info("✅ OTP email sent to {}", email);
+            sendEmail(email, otp);
+            logger.info("✅ OTP email sent via SendGrid to {}", email);
         } catch (Exception ex) {
             logger.error("❌ Failed to send OTP email to {}: {}", email, ex.getMessage());
-            // fallback: log OTP for dev
             logger.info("OTP (fallback) for {} is {}", email, otp);
         }
     }
@@ -101,6 +98,28 @@ public class OtpService {
 
     public void consumeVerification(String email) {
         verifiedEmails.remove(email);
+    }
+
+    private void sendEmail(String to, String otp) throws IOException {
+        Email from = new Email("eventlyreplied@gmail.com");
+        Email recipient = new Email(to);
+        String subject = "Your Amrita Events App OTP";
+        Content content = new Content("text/plain",
+                String.format("Your OTP is: %s\nIt will expire in %d minutes.", otp, OTP_TTL_SECONDS / 60));
+
+        Mail mail = new Mail(from, subject, recipient, content);
+
+        SendGrid sg = new SendGrid(sendgridApiKey);
+        Request request = new Request();
+        try {
+            request.setMethod(Method.POST);
+            request.setEndpoint("mail/send");
+            request.setBody(mail.build());
+            Response response = sg.api(request);
+            logger.info("SendGrid response: status={}, body={}", response.getStatusCode(), response.getBody());
+        } catch (IOException ex) {
+            throw ex;
+        }
     }
 
     private void cleanupExpiredOtps() {
